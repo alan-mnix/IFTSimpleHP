@@ -209,6 +209,9 @@ class RndSplitDataset(Dataset):
 
         return self.imgs
 
+    def protocol_labels(self):
+	return self.meta['all_labels']
+
 
     def protocol_eval(self, algo, feat_set):
 
