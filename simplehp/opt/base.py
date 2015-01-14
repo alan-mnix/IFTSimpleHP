@@ -6,6 +6,7 @@
 # -- import here additional dataset classes
 from simplehp.data.rndsplits    import PubFig83
 from simplehp.data.rndsplits    import CalTech256
+from simplehp.data.iftsplits import IFTDataset
 
 # -- import here algorithms for hyperparameter optimization
 from hyperopt.rand import suggest as random
@@ -17,7 +18,7 @@ from svm import svm_one_vs_world as svm_one_vs_world
 
 # -- add here additional dataset classes
 datasets = {'01': PubFig83,
-            '02': CalTech256,
+            '02': CalTech256, '03' : IFTDataset
            }
 
 hp_algos = {'default': 'random',

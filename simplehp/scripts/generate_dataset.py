@@ -17,7 +17,6 @@ from simplehp.util.util import load_hp
 
 speed_thresh = {'seconds': 2.0, 'elements': 4}
 
-
 class WriteAdapter(object):
 	def __init__(self, dataprovider, filename):
 		super(WriteAdapter, self).__init__()
