@@ -399,3 +399,22 @@ def get_farfrr(neg_scores, pos_scores, T):
     frr = (np.array(pos_scores) <= T).mean()
 
     return far, frr
+
+#computes normalized accuracy for classes
+def normalized_acc(yt, yp):
+    d = {}
+    t = {}
+    for i in xrange(len(yt)):
+        l = yt[i]
+        if l not in d:
+            d[l] = 0.0
+            t[l] = 0.0
+        t[l]+=1.0
+        if yp[i]==l:
+            d[l]+=1.0
+
+    acc=0.0
+    for k in d.keys():
+        acc+=d[k]/t[k]
+
+    return acc/len(d.keys())

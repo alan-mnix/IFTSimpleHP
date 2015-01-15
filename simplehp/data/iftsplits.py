@@ -14,6 +14,11 @@ import balancedshufflesplit
 from base import Dataset
 from simplehp.util.util import (get_folders_recursively, load_imgs)
 
+def _get_label_file(file):
+    f = os.path.basename(file)
+    f = os.path.splitext(f)[0]
+    return int(f[:f.find('_')])
+
 
 class IFTSplitDataset(Dataset):
     """
@@ -22,26 +27,30 @@ class IFTSplitDataset(Dataset):
     """
 
     def __init__(self, path, img_type, img_shape,
-                 hp_nsplits, hp_ntrain, hp_neval, hp_ntest,
-                 bkg_categories, seed=42):
+                 hp_nsplits, hp_ntrain, hp_neval, protocol_ntrain, protocol_ntest,
+                 bkg_categories, color = False, seed=42):
 
+        self.flatten = not color
         self.path = path
         self.img_type = img_type
         self.img_shape = img_shape
         self.hp_nsplits = hp_nsplits
         self.hp_ntrain = hp_ntrain
-        self.hp_ntest = hp_ntest
-	self.hp_neval = hp_neval
+        self.protocol_ntrain = protocol_ntrain
+        self.protocol_ntest = protocol_ntest
+        self.hp_neval = hp_neval
         self.bkg_categories = bkg_categories
         self.rng = np.random.RandomState(seed)
-	self.seed = seed
+        self.seed = seed
 
-	assert(hp_neval+hp_ntrain+hp_ntest==1.0)
+    	assert(self.hp_neval+self.hp_ntrain<1.0)
+        assert(self.protocol_ntrain >= self.hp_ntrain + self.hp_neval)
+        assert(self.protocol_ntrain + self.protocol_ntest<=1.0)
 
-	self.data = None
-	self.label = None
+    	self.data = None
+    	self.label = None
 
-	self.__build_meta()
+    	self.__build_meta()
 
 
     def __build_meta(self):
@@ -54,32 +63,13 @@ class IFTSplitDataset(Dataset):
         folders = np.array(sorted(get_folders_recursively(
                            self.path, self.img_type)))
 
-	print self.path
-	print self.img_type
-	print get_folders_recursively(self.path, self.img_type)
+        all_fnames = glob(os.path.join(self.path, '*'+self.img_type))
+        all_labels = map(_get_label_file, all_fnames)
 
-        all_fnames = []
-        all_labels = []
-
-        for folder in folders:
-
-            fnames = sorted(glob(os.path.join(self.path, folder,
-                                              '*' + self.img_type)))
-
-            for fname in fnames:
-
-                label = (os.path.split(fname)[0]).split('/')[-1]
-
-                all_fnames += [fname]
-                all_labels += [label]
 
         all_fnames = np.array(all_fnames)
         all_labels = np.array(all_labels)
         all_idxs = np.arange(all_labels.size)
-
-        print 'fnames: ', all_fnames
-	print 'labels: ', all_labels
-	print 'idxs: ', all_idxs   
 	
 	self.all_fnames = all_fnames
 	self.all_labels = all_labels
@@ -102,7 +92,7 @@ class IFTSplitDataset(Dataset):
             # -- load all images in memory because dataset is not large
             self._imgs = load_imgs(self.all_fnames,
                                    out_shape=self.img_shape,
-                                   dtype='uint8', flatten=False)
+                                   dtype='uint8', flatten=self.flatten)
 
             self._imgs = np.rollaxis(self._imgs, 3, 1)
             self._imgs = np.ascontiguousarray(self._imgs)
@@ -197,16 +187,24 @@ class IFTSplitDataset(Dataset):
 
         all_labels = self.all_labels
 
-	splitter = sklearn.cross_validation.StratifiedShuffleSplit(self.all_labels[self.test_idxs], 3, train_size = self.hp_ntrain+self.hp_neval, random_state = np.random.RandomState(self.seed))
+	splitter = sklearn.cross_validation.StratifiedShuffleSplit(self.all_labels[self.test_idxs], self.hp_nsplits, train_size = self.protocol_ntrain - (self.hp_ntrain+self.hp_neval), random_state = np.random.RandomState(self.seed))
 
         splits = [{'train':np.hstack((self.learn_idxs, self.test_idxs[x[0]])), 'test':self.test_idxs[x[1]]} for x in splitter]
 
         acc, r_dict = algo(feat_set, all_labels, splits,
                            bkg_categories=self.bkg_categories)
 
+        accs = [r_dict[k]['acc'] for k in r_dict.keys()]
+
+        print 'Acc: ', np.mean(accs), ' +/- ', np.std(accs)
+
         return {'loss': 1. - acc}
 
 
-def IFTDataset(path, img_type='ppm', img_shape=None):
-	return IFTSplitDataset(path, img_type, img_shape, hp_nsplits=10, hp_ntrain=0.025, hp_neval=0.025, hp_ntest=0.95, bkg_categories=[None,])
+def IFTDataset(path, img_type='pgm', img_shape=None):
+	return IFTSplitDataset(path, img_type, img_shape, hp_nsplits=10, hp_ntrain=0.025, hp_neval=0.025, protocol_ntrain = 0.1, protocol_ntest=0.9, bkg_categories=[None,])
+
+def IFTColorDataset(path, img_type='ppm', img_shape=None):
+    return IFTSplitDataset(path, img_type, img_shape, hp_nsplits=10, hp_ntrain=0.025, hp_neval=0.025, protocol_ntrain = 0.1, protocol_ntest=0.9, bkg_categories=[None,], color=True)
+
 
