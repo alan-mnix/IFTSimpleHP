@@ -19,6 +19,11 @@ def _get_label_file(file):
     f = os.path.splitext(f)[0]
     return int(f[:f.find('_')])
 
+def _get_id_file(file):
+    f = os.path.basename(file)
+    f = os.path.splitext(f)[0]
+    return int(f[f.find('_')+1:])
+
 
 class IFTSplitDataset(Dataset):
     """
@@ -63,7 +68,7 @@ class IFTSplitDataset(Dataset):
         folders = np.array(sorted(get_folders_recursively(
                            self.path, self.img_type)))
 
-        all_fnames = glob(os.path.join(self.path, '*'+self.img_type))
+        all_fnames = sorted(glob(os.path.join(self.path, '*'+self.img_type)), key=_get_id_file)
         all_labels = map(_get_label_file, all_fnames)
 
 
@@ -71,16 +76,16 @@ class IFTSplitDataset(Dataset):
         all_labels = np.array(all_labels)
         all_idxs = np.arange(all_labels.size)
 	
-	self.all_fnames = all_fnames
-	self.all_labels = all_labels
-	self.all_idxs = all_idxs
-	
-	#split out the test set
-	splitter = balancedshufflesplit.BalancedShuffleSplit(self.all_labels, 1, train_size = self.hp_ntrain+self.hp_neval, random_state = np.random.RandomState(self.seed))
-	self.learn_idxs, self.test_idxs = [(x[0],x[1]) for x in splitter][0]
+    	self.all_fnames = all_fnames
+    	self.all_labels = all_labels
+    	self.all_idxs = all_idxs
+    	
+    	#split out the test set
+    	splitter = balancedshufflesplit.BalancedShuffleSplit(self.all_labels, 1, train_size = self.hp_ntrain+self.hp_neval, random_state = np.random.RandomState(self.seed))
+    	self.learn_idxs, self.test_idxs = [(x[0],x[1]) for x in splitter][0]
 
-	print self.learn_idxs
-	print self.test_idxs
+    	print self.learn_idxs
+    	print self.test_idxs
 
 	#import pdb; pdb.set_trace()
 
@@ -100,6 +105,7 @@ class IFTSplitDataset(Dataset):
 	    #import pdb; pdb.set_trace()
 
             return self._imgs
+    
     imgs = property(__get_imgs)
 
 
@@ -161,11 +167,11 @@ class IFTSplitDataset(Dataset):
         feat_set -= f_mean
         feat_set /= f_std
 
-	splitter = balancedshufflesplit.BalancedShuffleSplit(self.all_labels[self.learn_idxs], self.hp_nsplits, train_size = self.hp_ntrain, random_state = np.random.RandomState(self.seed))
+	splitter = balancedshufflesplit.BalancedShuffleSplit(self.all_labels[self.learn_idxs], self.hp_nsplits, train_size = self.hp_ntrain/(self.hp_ntrain+self.hp_neval), random_state = np.random.RandomState(self.seed))
 
 	splits = [{'train':x[0], 'test':x[1]} for x in splitter]
 
-	#import pdb; pdb.set_trace()
+	# import pdb; pdb.set_trace()
 
         acc, r_dict = algo(feat_set, hp_labels, splits,
                            bkg_categories=self.bkg_categories)
@@ -186,13 +192,13 @@ class IFTSplitDataset(Dataset):
 	print 'IFT Protocol eval ...'
 
         all_labels = self.all_labels
-
-	splitter = sklearn.cross_validation.StratifiedShuffleSplit(self.all_labels[self.test_idxs], self.hp_nsplits, train_size = self.protocol_ntrain - (self.hp_ntrain+self.hp_neval), random_state = np.random.RandomState(self.seed))
+        splitter = sklearn.cross_validation.StratifiedShuffleSplit(self.all_labels[self.test_idxs], self.hp_nsplits, train_size = self.protocol_ntrain - (self.hp_ntrain+self.hp_neval), random_state = np.random.RandomState(self.seed))
 
         splits = [{'train':np.hstack((self.learn_idxs, self.test_idxs[x[0]])), 'test':self.test_idxs[x[1]]} for x in splitter]
 
         acc, r_dict = algo(feat_set, all_labels, splits,
                            bkg_categories=self.bkg_categories)
+
 
         accs = [r_dict[k]['acc'] for k in r_dict.keys()]
 
