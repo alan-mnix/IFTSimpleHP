@@ -7,6 +7,7 @@ import os
 from glob import glob
 import numpy as np
 
+import scipy.ndimage.interpolation
 import sklearn
 import sklearn.cross_validation
 import balancedshufflesplit
@@ -33,7 +34,7 @@ class IFTSplitDataset(Dataset):
 
     def __init__(self, path, img_type, img_shape,
                  hp_nsplits, hp_ntrain, hp_neval, protocol_ntrain, protocol_ntest,
-                 bkg_categories, color = False, seed=42):
+                 bkg_categories, n_perturbations = 3, color = False, seed=42):
 
         self.flatten = not color
         self.path = path
@@ -44,6 +45,9 @@ class IFTSplitDataset(Dataset):
         self.protocol_ntrain = protocol_ntrain
         self.protocol_ntest = protocol_ntest
         self.hp_neval = hp_neval
+
+        self.n_perturbations = n_perturbations
+
         self.bkg_categories = bkg_categories
         self.rng = np.random.RandomState(seed)
         self.seed = seed
@@ -87,6 +91,15 @@ class IFTSplitDataset(Dataset):
     	print self.learn_idxs
     	print self.test_idxs
 
+    #include the rotated samples for the specified ids
+    def __include_rotations(self, ids):
+        rotated_ids = np.zeros(len(ids)*self.n_perturbations)
+        for i in xrange(len(ids)):
+            cur_id = ids[i]
+            rotated_ids[i*self.n_perturbations:i*self.n_perturbations+self.n_perturbations] = self._rotated_imgs[cur_id*self.n_perturbations:cur_id*self.n_perturbations+self.n_perturbations]
+        return rotated_ids
+
+
 	#import pdb; pdb.set_trace()
 
     def __get_imgs(self):
@@ -99,10 +112,27 @@ class IFTSplitDataset(Dataset):
                                    out_shape=self.img_shape,
                                    dtype='uint8', flatten=self.flatten)
 
+            shape = self._imgs.shape
+            self._rotated_imgs = np.zeros((shape[0]*self.n_perturbations,)+shape[1:])
+
+            print self._imgs.shape
+            print self._rotated_imgs.shape
+
+            # import pdb;pdb.set_trace()
+
+            for i in xrange(len(self.all_idxs)):
+                img = self._imgs[i]
+                for j in xrange(1, self.n_perturbations+1):
+                    h = scipy.ndimage.interpolation.rotate(img, j*360.0/(self.n_perturbations+1))
+                    self._rotated_imgs[i+j] = h
+
+
             self._imgs = np.rollaxis(self._imgs, 3, 1)
             self._imgs = np.ascontiguousarray(self._imgs)
 
-	    #import pdb; pdb.set_trace()
+            self._rotated_imgs = np.rollaxis(self._rotated_imgs, 3, 1)
+            self._rotated_imgs = np.ascontiguousarray(self._rotated_imgs)
+
 
             return self._imgs
     
