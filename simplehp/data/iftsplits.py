@@ -223,6 +223,13 @@ class IFTSplitDataset(Dataset):
 
         splits = [{'train':np.hstack((self.learn_idxs, self.test_idxs[x[0]])), 'test':self.test_idxs[x[1]]} for x in splitter]
 
+        acc, r_dict = linear_svm(feat_set, np.hstack( (all_labels, self._rotated_labels )), rotated_splits,
+           bkg_categories=self.bkg_categories)
+
+        accs = [r_dict[k]['acc'] for k in r_dict.keys()]
+
+        print 'CNN Acc: ', np.mean(accs), ' +/- ', np.std(accs)
+
         # data = np.loadtxt(open("/home/peixinho/descriptors_rome/rome_mc.csv","rb"),delimiter=",",skiprows=0)
         # labels = np.loadtxt(open("/home/peixinho/rome/labels.csv","rb"),delimiter=",",skiprows=0)
 
@@ -249,7 +256,7 @@ class IFTSplitDataset(Dataset):
 
         accs = [r_dict[k]['acc'] for k in r_dict.keys()]
 
-        print 'CNN Acc: ', np.mean(accs), ' +/- ', np.std(accs)
+        print 'CNN Rotated Acc: ', np.mean(accs), ' +/- ', np.std(accs)
 
         return {'loss': 1. - acc}
 
@@ -262,7 +269,7 @@ def gaussian_svm(data, labels, splits, bkg_categories = None):
     for split in splits:
         svm.fit(data[split['train']], labels[split['train']])
         preds = svm.predict(data[split['test']])
-        acc = sklearn.metrics.accuracy_score(labels[split['test']], preds)
+        acc = util.normalized_acc(labels[split['test']], preds)
         r_dict[i] = {'acc':acc, 'predictions':preds}
         i+=1
 
@@ -270,7 +277,7 @@ def gaussian_svm(data, labels, splits, bkg_categories = None):
     return np.mean(accs), r_dict
 
 def linear_svm(data, labels, splits, bkg_categories = None):
-    svm = sklearn.svm.LinearSVC(dual=False, C=1e5, tol=1e-5)
+    svm = sklearn.svm.LinearSVC(dual=True, C=1e5, tol=1e-5)
 
     r_dict = {}
     i=1
@@ -278,8 +285,8 @@ def linear_svm(data, labels, splits, bkg_categories = None):
         print 'Running %d of 10 ...'%i
         svm.fit(data[split['train']], labels[split['train']])
         preds = svm.predict(data[split['test']])
-        acc = sklearn.metrics.accuracy_score(labels[split['test']], preds)
-        r_dict[i] = {'acc':acc, 'predictions':preds}
+        acc = util.normalized_acc(labels[split['test']], preds)
+        r_dict[i] = {'acc':acc, 'predictions':preds, 'gt':labels[split['test']]}
         i+=1
 
     accs = [r_dict[k]['acc'] for k in r_dict.keys()]
