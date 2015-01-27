@@ -7,9 +7,14 @@ import os
 from glob import glob
 import numpy as np
 
+import scipy.ndimage.interpolation
+
 import sklearn
 import sklearn.cross_validation
 import balancedshufflesplit
+
+import sklearn.svm
+import sklearn.metrics
 
 from base import Dataset
 from simplehp.util.util import (get_folders_recursively, load_imgs)
@@ -99,10 +104,24 @@ class IFTSplitDataset(Dataset):
                                    out_shape=self.img_shape,
                                    dtype='uint8', flatten=self.flatten)
 
+            self._rotated_imgs = np.zeros((self._imgs.shape[0]*3,)+self._imgs.shape[1:], dtype=np.uint8)
+            self._rotated_labels = []
+
+            print 'Perturbating images ...'
+            for i in xrange(self._imgs.shape[0]):
+                for j in xrange(3):
+                    self._rotated_imgs[i*3+j] = scipy.ndimage.interpolation.rotate(self._imgs[i], (360.0*(j+1))/4.0)
+                    self._rotated_labels.append(self.all_labels[i])
+
+            print 'Ok'
+
+            self._imgs = np.vstack((self._imgs, self._rotated_imgs))
+            self._rotated_imgs = None
+
             self._imgs = np.rollaxis(self._imgs, 3, 1)
             self._imgs = np.ascontiguousarray(self._imgs)
 
-	    #import pdb; pdb.set_trace()
+            # import pdb; pdb.set_trace()
 
             return self._imgs
     
@@ -112,6 +131,14 @@ class IFTSplitDataset(Dataset):
     def hp_imgs(self):
 
         return self.imgs[self.learn_idxs]
+
+    def _rotated_idxs(self, idxs):
+        idxs = np.hstack((idxs))
+        nsamples = self.all_labels.size
+        rotated_idxs = np.concatenate([np.arange(x*3, x*3+3)+nsamples for x in idxs])
+        return np.hstack( (idxs, rotated_idxs ))
+
+
 
 
     def __build_hp_splits(self):
@@ -196,34 +223,67 @@ class IFTSplitDataset(Dataset):
 
         splits = [{'train':np.hstack((self.learn_idxs, self.test_idxs[x[0]])), 'test':self.test_idxs[x[1]]} for x in splitter]
 
-        acc, r_dict = algo(feat_set, all_labels, splits,
-                           bkg_categories=self.bkg_categories)
+        # data = np.loadtxt(open("/home/peixinho/descriptors_rome/rome_mc.csv","rb"),delimiter=",",skiprows=0)
+        # labels = np.loadtxt(open("/home/peixinho/rome/labels.csv","rb"),delimiter=",",skiprows=0)
 
-        data = numpy.loadtxt(open("/home/peixinho/descriptors_rome/rome_mc.csv","rb"),delimiter=",",skiprows=0)
-        labels = numpy.loadtxt(open("/home/peixinho/rome/labels.csv","rb"),delimiter=",",skiprows=0)
+        # acc, r_dict = gaussian_svm(data, labels, splits,
+        #            bkg_categories=self.bkg_categories)
 
-        acc, r_dict = algo(data, labels, splits,
+        # accs = [r_dict[k]['acc'] for k in r_dict.keys()]
+        # print 'MC Acc: ', np.mean(accs), ' +/- ', np.std(accs)
+
+
+        # data = np.loadtxt(open("/home/peixinho/descriptors_rome/rome_ccbow.csv","rb"),delimiter=",",skiprows=0)
+        # labels = np.loadtxt(open("/home/peixinho/rome/labels.csv","rb"),delimiter=",",skiprows=0)
+
+        # acc, r_dict = gaussian_svm(data, labels, splits,
+        #            bkg_categories=self.bkg_categories)
+
+        # accs = [r_dict[k]['acc'] for k in r_dict.keys()]
+        # print 'BOW Acc: ', np.mean(accs), ' +/- ', np.std(accs)
+
+        rotated_splits = [{'train':self._rotated_idxs(s['train']), 'test':s['test']} for s in splits]
+
+        acc, r_dict = linear_svm(feat_set, np.hstack( (all_labels, self._rotated_labels )), rotated_splits,
                    bkg_categories=self.bkg_categories)
-
-        accs = [r_dict[k]['acc'] for k in r_dict.keys()]
-        print 'MC Acc: ', np.mean(accs), ' +/- ', np.std(accs)
-
-
-        data = numpy.loadtxt(open("/home/peixinho/descriptors_rome/rome_ccbow.csv","rb"),delimiter=",",skiprows=0)
-        labels = numpy.loadtxt(open("/home/peixinho/rome/labels.csv","rb"),delimiter=",",skiprows=0)
-
-        acc, r_dict = algo(data, labels, splits,
-                   bkg_categories=self.bkg_categories)
-
-        accs = [r_dict[k]['acc'] for k in r_dict.keys()]
-        print 'BOW Acc: ', np.mean(accs), ' +/- ', np.std(accs)
-
 
         accs = [r_dict[k]['acc'] for k in r_dict.keys()]
 
         print 'CNN Acc: ', np.mean(accs), ' +/- ', np.std(accs)
 
         return {'loss': 1. - acc}
+
+
+def gaussian_svm(data, labels, splits, bkg_categories = None):
+    svm = sklearn.svm.SVC(kernel='rbf', C=1e5, tol=1e-5)
+
+    r_dict = {}
+    i=1
+    for split in splits:
+        svm.fit(data[split['train']], labels[split['train']])
+        preds = svm.predict(data[split['test']])
+        acc = sklearn.metrics.accuracy_score(labels[split['test']], preds)
+        r_dict[i] = {'acc':acc, 'predictions':preds}
+        i+=1
+
+    accs = [r_dict[k]['acc'] for k in r_dict.keys()]
+    return np.mean(accs), r_dict
+
+def linear_svm(data, labels, splits, bkg_categories = None):
+    svm = sklearn.svm.LinearSVC(dual=False, C=1e5, tol=1e-5)
+
+    r_dict = {}
+    i=1
+    for split in splits:
+        print 'Running %d of 10 ...'%i
+        svm.fit(data[split['train']], labels[split['train']])
+        preds = svm.predict(data[split['test']])
+        acc = sklearn.metrics.accuracy_score(labels[split['test']], preds)
+        r_dict[i] = {'acc':acc, 'predictions':preds}
+        i+=1
+
+    accs = [r_dict[k]['acc'] for k in r_dict.keys()]
+    return np.mean(accs), r_dict
 
 
 def IFTDataset(path, img_type='pgm', img_shape=None):
