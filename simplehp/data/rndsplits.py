@@ -262,22 +262,28 @@ class RndSplitDataset(Dataset):
         return r_dict
 
 
-def PubFig83(path, img_type='jpg', img_shape=None):
+def PubFig83(**args):
     """
     Expecting data as downloaded from 
     https://www.dropbox.com/s/0ez5p9bpjxobrfv/pubfig83-aligned.tar.bz2
     """
+    path = args['path']
+    img_type = args.get('img_type', 'jpg')
+    img_shape = args.get('img_shape', None)
     return RndSplitDataset(path, img_type, img_shape,
                            hp_nsplits=4, hp_ntrain=20, hp_ntest=20,
                            pt_nsplits=10, pt_ntrain=90, pt_ntest=10,
                            bkg_categories=[None,])
 
 
-def CalTech256(path, img_type='jpg', img_shape=(351,351)):
+def CalTech256(**args):
     """
     Expecting data as downloaded from 
     http://www.vision.caltech.edu/Image_Datasets/Caltech256/256_ObjectCategories.tar
     """
+    path = args['path']
+    img_type = args.get('img_type', 'jpg')
+    img_shape = args.get('img_shape', (351,351))
     return RndSplitDataset(path, img_type, img_shape,
                            hp_nsplits=3, hp_ntrain=20, hp_ntest=10,
                            pt_nsplits=10, pt_ntrain=30, pt_ntest=15,

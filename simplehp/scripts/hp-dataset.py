@@ -2,6 +2,7 @@
 #
 # License: BSD
 
+import json
 import os
 import optparse
 import inspect
@@ -15,13 +16,23 @@ n_startup_trials = 400 # -- random trials before optimization => ~50 ok trials
 n_ok_trials = 2000
 opt_modes = ['serial', 'async']
 
+def load_params(filename):
+	if filename == None:
+		return {}
+	return json.load(open(filename))
 
-def hp_dataset(dataset_class, dataset_path,
+def hp_dataset(dataset_class, dataset_config, dataset_path,
                hp_space, hp_algo, learning_algo,
                n_startup_trials, n_ok_trials, output_path,
                opt_mode, host, port):
 
-    data_obj = dataset_class(dataset_path)
+    print 'Config: +' + dataset_config
+
+    dataset_params = load_params(dataset_config)
+
+    print 'Br: ', dataset_params
+
+    data_obj = dataset_class(path=dataset_path, **dataset_params)
     # -- force images do be loaded and be kept in memory
     foo = data_obj.hp_imgs()
 
@@ -138,6 +149,12 @@ def get_optparser():
                       help=("Only considered when optimization mode='async' "
                             "[DEFAULT='%default']"))
 
+    parser.add_option("--dataset_config", "-C",
+		default=None,
+		type="str",
+		metavar="FILE",
+		help=("JSON file with dataprovider parameters"))
+
     return parser
 
 
@@ -180,13 +197,14 @@ def main():
         except KeyError:
             raise ValueError('invalid learning algorithm')
 
+	dataset_config = opts.dataset_config
         n_startup_trials = opts.n_startup_trials
         n_ok_trials = opts.n_ok_trials
 
         host = opts.host
         port = opts.port
 
-        hp_dataset(dataset_class, dataset_path,
+        hp_dataset(dataset_class, dataset_config, dataset_path,
                    hp_space, hp_algo, learning_algo,
                    n_startup_trials, n_ok_trials, output_path,
                    opt_mode, host, port)

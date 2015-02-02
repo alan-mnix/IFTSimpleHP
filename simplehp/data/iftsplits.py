@@ -38,7 +38,7 @@ class IFTSplitDataset(Dataset):
 
     def __init__(self, path, img_type, img_shape,
                  hp_nsplits, hp_ntrain, hp_neval, protocol_ntrain, protocol_ntest,
-                 bkg_categories, color = False, seed=42):
+                 bkg_categories, color = False, rotate_protocol = False, seed=42):
 
         self.flatten = not color
         self.path = path
@@ -52,6 +52,7 @@ class IFTSplitDataset(Dataset):
         self.bkg_categories = bkg_categories
         self.rng = np.random.RandomState(seed)
         self.seed = seed
+	self.rotate_protocol = rotate_protocol
 
     	assert(self.hp_neval+self.hp_ntrain<1.0)
         assert(self.protocol_ntrain >= self.hp_ntrain + self.hp_neval)
@@ -104,19 +105,20 @@ class IFTSplitDataset(Dataset):
                                    out_shape=self.img_shape,
                                    dtype='uint8', flatten=self.flatten)
 
-            self._rotated_imgs = np.zeros((self._imgs.shape[0]*3,)+self._imgs.shape[1:], dtype=np.uint8)
-            self._rotated_labels = []
+	    if self.rotate_protocol:
+            	self._rotated_imgs = np.zeros((self._imgs.shape[0]*3,)+self._imgs.shape[1:], dtype=np.uint8)
+            	self._rotated_labels = []
 
-            print 'Perturbating images ...'
-            for i in xrange(self._imgs.shape[0]):
-                for j in xrange(3):
-                    self._rotated_imgs[i*3+j] = scipy.ndimage.interpolation.rotate(self._imgs[i], (360.0*(j+1))/4.0)
-                    self._rotated_labels.append(self.all_labels[i])
+            	print 'Perturbating images ...'
+            	for i in xrange(self._imgs.shape[0]):
+                	for j in xrange(3):
+	                    	self._rotated_imgs[i*3+j] = scipy.ndimage.interpolation.rotate(self._imgs[i], (360.0*(j+1))/4.0)
+        	            	self._rotated_labels.append(self.all_labels[i])
 
-            print 'Ok'
+            	print 'Ok'
 
-            self._imgs = np.vstack((self._imgs, self._rotated_imgs))
-            self._rotated_imgs = None
+            	self._imgs = np.vstack((self._imgs, self._rotated_imgs))
+            	self._rotated_imgs = None
 
             self._imgs = np.rollaxis(self._imgs, 3, 1)
             self._imgs = np.ascontiguousarray(self._imgs)
@@ -137,8 +139,6 @@ class IFTSplitDataset(Dataset):
         nsamples = self.all_labels.size
         rotated_idxs = np.concatenate([np.arange(x*3, x*3+3)+nsamples for x in idxs])
         return np.hstack( (idxs, rotated_idxs ))
-
-
 
 
     def __build_hp_splits(self):
@@ -223,7 +223,11 @@ class IFTSplitDataset(Dataset):
 
         splits = [{'train':np.hstack((self.learn_idxs, self.test_idxs[x[0]])), 'test':self.test_idxs[x[1]]} for x in splitter]
 
-        acc, r_dict = linear_svm(feat_set, np.hstack( (all_labels, self._rotated_labels )), rotated_splits,
+	if self.rotate_protocol:
+		all_labels = np.hstack( (all_labels, self._rotated_labels ))
+		splits = [{'train':self._rotated_idxs(s['train']), 'test':s['test']} for s in splits]
+
+        acc, r_dict = linear_svm(feat_set, all_labels, splits,
            bkg_categories=self.bkg_categories)
 
         accs = [r_dict[k]['acc'] for k in r_dict.keys()]
@@ -249,43 +253,35 @@ class IFTSplitDataset(Dataset):
         # accs = [r_dict[k]['acc'] for k in r_dict.keys()]
         # print 'BOW Acc: ', np.mean(accs), ' +/- ', np.std(accs)
 
-        rotated_splits = [{'train':self._rotated_idxs(s['train']), 'test':s['test']} for s in splits]
+	#acc, r_dict = linear_svm(feat_set, np.hstack( (all_labels, self._rotated_labels )), rotated_splits,
+        #           bkg_categories=self.bkg_categories)
 
-        acc, r_dict = linear_svm(feat_set, np.hstack( (all_labels, self._rotated_labels )), rotated_splits,
-                   bkg_categories=self.bkg_categories)
+        #accs = [r_dict[k]['acc'] for k in r_dict.keys()]
 
-        accs = [r_dict[k]['acc'] for k in r_dict.keys()]
-
-        print 'CNN Rotated Acc: ', np.mean(accs), ' +/- ', np.std(accs)
+        #print 'CNN Rotated Acc: ', np.mean(accs), ' +/- ', np.std(accs)
 
         return {'loss': 1. - acc}
 
 
 def gaussian_svm(data, labels, splits, bkg_categories = None):
-    svm = sklearn.svm.SVC(kernel='rbf', C=1e5, tol=1e-5)
-
-    r_dict = {}
-    i=1
-    for split in splits:
-        svm.fit(data[split['train']], labels[split['train']])
-        preds = svm.predict(data[split['test']])
-        acc = util.normalized_acc(labels[split['test']], preds)
-        r_dict[i] = {'acc':acc, 'predictions':preds}
-        i+=1
-
-    accs = [r_dict[k]['acc'] for k in r_dict.keys()]
-    return np.mean(accs), r_dict
+    return svm(data, labels, splits, bkg_categories, 'rbf')
 
 def linear_svm(data, labels, splits, bkg_categories = None):
-    svm = sklearn.svm.LinearSVC(dual=True, C=1e5, tol=1e-5)
+    return svm(data, labels, splits, bkg_categories, 'linear')
+
+def svm(data, labels, splits, bkg_categories, kernel):
+    svm = sklearn.svm.SVC(C=1e5, tol=1e-5, kernel=kernel, class_weight='auto')
+    norm = sklearn.preprocessing.StandardScaler()
 
     r_dict = {}
     i=1
     for split in splits:
         print 'Running %d of 10 ...'%i
-        svm.fit(data[split['train']], labels[split['train']])
-        preds = svm.predict(data[split['test']])
-        acc = util.normalized_acc(labels[split['test']], preds)
+	train = norm.fit_transform(data[split['train']])
+	test = norm.transform(data[split['test']])
+        svm.fit(train, labels[split['train']])
+        preds = svm.predict(test)
+        acc = sklearn.metrics.accuracy_score(labels[split['test']], preds)
         r_dict[i] = {'acc':acc, 'predictions':preds, 'gt':labels[split['test']]}
         i+=1
 
@@ -293,10 +289,26 @@ def linear_svm(data, labels, splits, bkg_categories = None):
     return np.mean(accs), r_dict
 
 
-def IFTDataset(path, img_type='pgm', img_shape=None):
+def IFTDataset(**args):
+	path = args['path']
+	img_type = args.get('img_type', 'ppm')
+	img_shape = args.get('img_shape', None)
 	return IFTSplitDataset(path, img_type, img_shape, hp_nsplits=10, hp_ntrain=0.025, hp_neval=0.025, protocol_ntrain = 0.1, protocol_ntest=0.9, bkg_categories=[None,])
 
-def IFTColorDataset(path, img_type='ppm', img_shape=None):
-    return IFTSplitDataset(path, img_type, img_shape, hp_nsplits=10, hp_ntrain=0.025, hp_neval=0.025, protocol_ntrain = 0.1, protocol_ntest=0.9, bkg_categories=[None,], color=True)
+def IFTColorDataset(**args):
+    path = args['path']
+    img_type = args.get('img_type', 'ppm')
+    img_shape = args.get('img_shape', None)
+    hp_nsplits = args.get('hp_nsplits', 10)
+    
+    hp_ntrain = args.get('hp_ntrain', 0.025)
+    hp_neval = args.get('hp_neval', 0.025)
+    
+    protocol_ntrain = args.get('protocol_ntrain', 0.1)
+    protocol_ntest = args.get('protocol_ntest', 0.9)
+
+    rotate_protocol = args.get('rotate_protocol', False)
+
+    return IFTSplitDataset(path, img_type, img_shape, hp_nsplits=hp_nsplits, hp_ntrain=hp_ntrain, hp_neval=hp_neval, protocol_ntrain = protocol_ntrain, protocol_ntest=protocol_ntest, bkg_categories=[None,], color=True, rotate_protocol=rotate_protocol)
 
 

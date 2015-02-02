@@ -2,6 +2,7 @@
 #
 # License: BSD
 
+import json
 import os
 import optparse
 import pprint
@@ -43,11 +44,15 @@ def interesting_samples(int_dict):
 
     return
 
+def load_params(filename):
+        if filename == None:
+                return {}
+        return json.load(open(filename))
 
-def protocol_eval(dataset, dataset_path, hp_fname, host, port,
+def protocol_eval(dataset, dataset_config, dataset_path, hp_fname, host, port,
                   learning_algo, int_samples):
 
-    data_obj = dataset(dataset_path)
+    data_obj = dataset(path = dataset_path, **load_params(dataset_config))
 
     # -- load hp file
     hp_space, trials, _ = load_hp(hp_fname, host, port)
@@ -147,6 +152,11 @@ def get_optparser():
                       help="output interesting misses and hits in current " \
                            "path [DEFAULT='%default']")
 
+    parser.add_option("--dataset_config", "-C",
+                default=None,
+                type="str",
+                metavar="FILE",
+                help=("JSON file with dataprovider parameters"))
 
     return parser
 
@@ -169,6 +179,8 @@ def main():
         host = opts.host
         port = opts.port
 
+	dataset_config = opts.dataset_config
+
         try:
             learning_algo = learning_algos[opts.learning_algo]
         except KeyError:
@@ -176,7 +188,7 @@ def main():
 
         int_samples = opts.int_samples
 
-        protocol_eval(dataset, dataset_path, hp_fname, host, port,
+        protocol_eval(dataset, dataset_config, dataset_path, hp_fname, host, port,
                       learning_algo, int_samples)
 
 if __name__ == "__main__":

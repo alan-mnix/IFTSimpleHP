@@ -1,0 +1,8 @@
+{
+	"hp_nsplits":10,
+	"hp_ntrain":0.05,
+	"hp_neval":0.05,
+	"protocol_ntrain":0.25,
+	"protocol_ntest":0.75,
+	"rotate_protocol":true
+}
